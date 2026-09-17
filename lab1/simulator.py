@@ -56,6 +56,9 @@ class Simulator:
 
         self.trace_events: list[ResourceEvent] = []
         self._open_trace: dict[tuple, dict] = {}
+        # First tick at which each command entered a pipeline. Used only for
+        # diagnostics/progress display; simulation behaviour is unchanged.
+        self.command_issue_tick: dict[int, Fraction] = {}
 
     # ---------- Trace API ----------
     def _trace_start(
@@ -361,6 +364,7 @@ class Simulator:
 
     def _issue_command_to_pipeline(self, p: Pipeline, cmd: Command, start: Fraction) -> None:
         cmd.status = "ACTIVE"
+        self.command_issue_tick[cmd.id] = start
         p.command = cmd
         p.state = PipelineState.LOOKUP
         p.lookup_remaining = 1
@@ -607,7 +611,14 @@ class Simulator:
 
     def snapshot(self) -> str:
         s = self.snapshot_dict()
+        from collections import Counter
+        counts = Counter(c.task.name for c in self.command_stream)
+        issued = Counter(c.task.name for c in self.command_stream if c.status != "WAITING")
+        done = Counter(c.task.name for c in self.command_stream if c.status == "DONE")
         lines = [f"Такт МП: {s['tick_mp']} | Такт СШ: {s['tick_sb']}"]
+        lines.append("Поток: " + ", ".join(f"{k}={counts.get(k,0)}" for k in ("MDO","MSO","UPR","DISP")))
+        lines.append("Введено: " + ", ".join(f"{k}={issued.get(k,0)}" for k in ("MDO","MSO","UPR","DISP")))
+        lines.append("Готово: " + ", ".join(f"{k}={done.get(k,0)}" for k in ("MDO","MSO","UPR","DISP")))
         for p in s["pipelines"]:
             cmd = "" if p["command_id"] is None else f"{p['command_task']} #{p['command_id']}"
             lines.append(f"P{p['id']}: {p['state']:12s} {cmd}")
